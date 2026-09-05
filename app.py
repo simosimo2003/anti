@@ -9,7 +9,7 @@ from scipy.ndimage import gaussian_filter1d
 
 st.set_page_config(page_title="Advanced Gold Pattern AI", layout="wide")
 
-st.title("استخراج النمط الأصلي وتكملته بالأزرق (الإصدار الذكي)hello 🪙⚡")
+st.title("استخراج النمط الأصلي وتكملته بالأزرق (الإصدار الذكي) 🪙⚡")
 st.write("نظام مطابقة خوارزمي متقدم يبحث عن أدق نمط تاريخي مطابق لهيكل الشارت والسيولة.")
 
 # 1. إدخال الصورة والفريم
@@ -37,10 +37,10 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
                 y_vals = points[0][points[1] == x]
                 y_profile.append(-np.mean(y_vals))
             
-            # تنقية البيانات وضمان تحويلها لـ 1D Numpy Array
+            # تنقية البيانات وضمان تحويلها إلى 1D Numpy Array
             smoothed_profile = gaussian_filter1d(np.array(y_profile, dtype=np.float64), sigma=1.5)
             user_pattern = (smoothed_profile - np.mean(smoothed_profile)) / (np.std(smoothed_profile) + 1e-8)
-            user_pattern = np.ravel(user_pattern) # ضمان أحادية البعد 1D
+            user_pattern = user_pattern.flatten().astype(np.float64) # ضمان أحادية البعد صراحةً
         else:
             st.error("لم يتم التعرف على الشموع بدقة. يرجى رفع صورة واضحة للشارت.")
             st.stop()
@@ -53,12 +53,11 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             st.error("تعذر الاتصال بسيرفر البيانات المالية للذهب.")
             st.stop()
 
-        # تحويل أسعار الإغلاق بأمان وتسطيحها لمنع AxisError
-        prices = data['Close'].values.astype(np.float64)
-        prices = np.ravel(prices) # تحويل إلى 1D array صريحة
+        # تحويل أسعار الإغلاق وتسطيحها نهائياً لتفادي AxisError
+        prices = np.array(data['Close']).flatten().astype(np.float64)
         
         window_len = len(user_pattern)
-        future_len = int(window_len * 0.6) # مدى التوقعات
+        future_len = int(window_len * 0.6)
         
         best_score = float("inf")
         best_idx = -1
@@ -69,35 +68,31 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             hist_window = prices[i : i + window_len]
             smoothed_hist = gaussian_filter1d(hist_window, sigma=1.5)
             norm_hist = (smoothed_hist - np.mean(smoothed_hist)) / (np.std(smoothed_hist) + 1e-8)
-            norm_hist = np.ravel(norm_hist) # ضمان أحادية البعد
+            norm_hist = norm_hist.flatten().astype(np.float64) # تحويل إلى 1D صريحة
             
             # 1. مسافة الشكل (DTW Distance)
             dtw_dist, _ = fastdtw(user_pattern, norm_hist, dist=euclidean)
             
-            # 2. مطابقة الميل والاتجاه العام (Trend Correlation)
+            # 2. مطابقة الاتجاه العام (Trend Correlation)
             trend_user = np.polyfit(range(len(user_pattern)), user_pattern, 1)[0]
             trend_hist = np.polyfit(range(len(norm_hist)), norm_hist, 1)[0]
             trend_penalty = abs(trend_user - trend_hist) * window_len
             
-            # النتيجة المركبة
             combined_score = dtw_dist + (trend_penalty * 2.0)
             
             if combined_score < best_score:
                 best_score = combined_score
                 best_idx = i
 
-        # د) حساب النسبة الدقيقة للعرض
+        # د) حساب النسبة وعرض النتائج
         match_percentage = max(50.0, min(99.2, 100 - (best_score / window_len * 7)))
-        
         st.success(f"🔥 تم العثور على نمط مطابق بنسبة: {match_percentage:.1f}%")
 
-        # رسم الشارت المطور بالمسار الأزرق
         matched_history = prices[best_idx : best_idx + window_len]
         matched_future = prices[best_idx + window_len : best_idx + window_len + future_len]
         
         fig, ax = plt.subplots(figsize=(11, 5))
         
-        # رسم المسار التاريخي والتوقع
         ax.plot(range(len(matched_history)), matched_history, label="النمط المطابق تاريخياً", color="#00f2fe", linewidth=2)
         ax.plot(range(len(matched_history)-1, len(matched_history) + len(matched_future)), 
                 np.insert(matched_future, 0, matched_history[-1]), 
@@ -105,7 +100,6 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
         
         ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.8, label="نقطة الانطلاق الحالية")
         
-        # تنسيق مظهر الشارت
         ax.set_facecolor("#131722")
         fig.patch.set_facecolor("#131722")
         ax.tick_params(colors="white")
