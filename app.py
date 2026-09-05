@@ -37,10 +37,10 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
                 y_vals = points[0][points[1] == x]
                 y_profile.append(-np.mean(y_vals))
             
-            # تنقية البيانات وضمان تحويلها إلى 1D Numpy Array
+            # تنقية البيانات وتشكيلها بالأبعاد الصحيحة لـ FastDTW
             smoothed_profile = gaussian_filter1d(np.array(y_profile, dtype=np.float64), sigma=1.5)
             user_pattern = (smoothed_profile - np.mean(smoothed_profile)) / (np.std(smoothed_profile) + 1e-8)
-            user_pattern = user_pattern.flatten().astype(np.float64) # ضمان أحادية البعد صراحةً
+            user_pattern_2d = user_pattern.reshape(-1, 1) # أبعاد صريحة للنقاط
         else:
             st.error("لم يتم التعرف على الشموع بدقة. يرجى رفع صورة واضحة للشارت.")
             st.stop()
@@ -53,7 +53,7 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             st.error("تعذر الاتصال بسيرفر البيانات المالية للذهب.")
             st.stop()
 
-        # تحويل أسعار الإغلاق وتسطيحها نهائياً لتفادي AxisError
+        # استخراج أسعار الإغلاق بأمان
         prices = np.array(data['Close']).flatten().astype(np.float64)
         
         window_len = len(user_pattern)
@@ -62,20 +62,20 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
         best_score = float("inf")
         best_idx = -1
 
-        # ج) الخوارزمية المزدوجة (DTW + Momentum Trend Score)
+        # ج) الخوارزمية المزدوجة (FastDTW + Trend)
         step = max(1, int(window_len / 5))
         for i in range(0, len(prices) - window_len - future_len, step):
             hist_window = prices[i : i + window_len]
             smoothed_hist = gaussian_filter1d(hist_window, sigma=1.5)
             norm_hist = (smoothed_hist - np.mean(smoothed_hist)) / (np.std(smoothed_hist) + 1e-8)
-            norm_hist = norm_hist.flatten().astype(np.float64) # تحويل إلى 1D صريحة
+            norm_hist_2d = norm_hist.reshape(-1, 1)
             
-            # 1. مسافة الشكل (DTW Distance)
-            dtw_dist, _ = fastdtw(user_pattern, norm_hist, dist=euclidean)
+            # 1. مسافة الشكل بـ FastDTW مع الأبعاد الصحيحة
+            dtw_dist, _ = fastdtw(user_pattern_2d, norm_hist_2d, dist=euclidean)
             
             # 2. مطابقة الاتجاه العام (Trend Correlation)
-            trend_user = np.polyfit(range(len(user_pattern)), user_pattern, 1)[0]
-            trend_hist = np.polyfit(range(len(norm_hist)), norm_hist, 1)[0]
+            trend_user = np.polyfit(range(window_len), user_pattern, 1)[0]
+            trend_hist = np.polyfit(range(window_len), norm_hist, 1)[0]
             trend_penalty = abs(trend_user - trend_hist) * window_len
             
             combined_score = dtw_dist + (trend_penalty * 2.0)
@@ -84,7 +84,7 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
                 best_score = combined_score
                 best_idx = i
 
-        # د) حساب النسبة وعرض النتائج
+        # د) عرض النتائج
         match_percentage = max(50.0, min(99.2, 100 - (best_score / window_len * 7)))
         st.success(f"🔥 تم العثور على نمط مطابق بنسبة: {match_percentage:.1f}%")
 
