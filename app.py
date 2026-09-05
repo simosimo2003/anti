@@ -9,7 +9,7 @@ from scipy.ndimage import gaussian_filter1d
 
 st.set_page_config(page_title="Advanced Gold Pattern AI", layout="wide")
 
-st.title("استخراج النمط الأصلي وتكملته بالأزرق (الإصدار الذكي) 🪙⚡")
+st.title("استخراج النمط الأصلي وتكملته بالأزرق (الإصدار الذكي)hello 🪙⚡")
 st.write("نظام مطابقة خوارزمي متقدم يبحث عن أدق نمط تاريخي مطابق لهيكل الشارت والسيولة.")
 
 # 1. إدخال الصورة والفريم
