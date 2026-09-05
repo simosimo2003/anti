@@ -37,9 +37,10 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
                 y_vals = points[0][points[1] == x]
                 y_profile.append(-np.mean(y_vals))
             
-            # تنقية البيانات من الضوضاء عبر Gaussian Smoothing
-            smoothed_profile = gaussian_filter1d(y_profile, sigma=1.5)
+            # تنقية البيانات وضمان تحويلها لـ 1D Numpy Array
+            smoothed_profile = gaussian_filter1d(np.array(y_profile, dtype=np.float64), sigma=1.5)
             user_pattern = (smoothed_profile - np.mean(smoothed_profile)) / (np.std(smoothed_profile) + 1e-8)
+            user_pattern = np.ravel(user_pattern) # ضمان أحادية البعد 1D
         else:
             st.error("لم يتم التعرف على الشموع بدقة. يرجى رفع صورة واضحة للشارت.")
             st.stop()
@@ -52,9 +53,12 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             st.error("تعذر الاتصال بسيرفر البيانات المالية للذهب.")
             st.stop()
 
-        prices = data['Close'].values.flatten()
+        # تحويل أسعار الإغلاق بأمان وتسطيحها لمنع AxisError
+        prices = data['Close'].values.astype(np.float64)
+        prices = np.ravel(prices) # تحويل إلى 1D array صريحة
+        
         window_len = len(user_pattern)
-        future_len = int(window_len * 0.6) # زيادة مدى التوقع إلى 60%
+        future_len = int(window_len * 0.6) # مدى التوقعات
         
         best_score = float("inf")
         best_idx = -1
@@ -65,6 +69,7 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             hist_window = prices[i : i + window_len]
             smoothed_hist = gaussian_filter1d(hist_window, sigma=1.5)
             norm_hist = (smoothed_hist - np.mean(smoothed_hist)) / (np.std(smoothed_hist) + 1e-8)
+            norm_hist = np.ravel(norm_hist) # ضمان أحادية البعد
             
             # 1. مسافة الشكل (DTW Distance)
             dtw_dist, _ = fastdtw(user_pattern, norm_hist, dist=euclidean)
@@ -74,7 +79,7 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
             trend_hist = np.polyfit(range(len(norm_hist)), norm_hist, 1)[0]
             trend_penalty = abs(trend_user - trend_hist) * window_len
             
-            # النتيجة المركبة الذكية
+            # النتيجة المركبة
             combined_score = dtw_dist + (trend_penalty * 2.0)
             
             if combined_score < best_score:
@@ -100,7 +105,7 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
         
         ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.8, label="نقطة الانطلاق الحالية")
         
-        # تنسيق مظهر الشارت ليصبح احترافياً
+        # تنسيق مظهر الشارت
         ax.set_facecolor("#131722")
         fig.patch.set_facecolor("#131722")
         ax.tick_params(colors="white")
