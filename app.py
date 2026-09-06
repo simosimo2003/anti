@@ -31,23 +31,22 @@ with col2:
         key="canvas",
     )
 
-if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
-    img_data = None
-    
-    # حماية من RuntimeError عند قراءة image_data
-    if canvas_result is not None:
-        try:
-            img_data = canvas_result.image_data
-        except Exception:
-            img_data = None
+# حفظ رسمة المستخدم تلقائياً في session_state لحمايتها من الاختفاء عند ضغط الزر
+if canvas_result is not None and canvas_result.image_data is not None:
+    # تحقق من وجود بكسلات مرسومة فعلياً
+    raw_img = canvas_result.image_data.astype(np.uint8)
+    if np.any(raw_img[:, :, :3] > 20):
+        st.session_state["saved_drawing"] = raw_img
 
-    if img_data is None:
-        st.error("يرجى الرسم أولاً داخل اللوحة السوداء والانتظار لحظة قبل بدء المسح.")
+if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
+    # استرجاع الرسمة إما من الكانفاس الحالي أو من الجلسة المحفوظة
+    img = st.session_state.get("saved_drawing", None)
+
+    if img is None:
+        st.error("لم يتم العثور على رسمة. يرجى الرسم داخل اللوحة السوداء بوضوح أولاً.")
         st.stop()
 
-    img = img_data.astype(np.uint8)
-    
-    # دمج القنوات لتحديد البكسلات المرسومة
+    # دمج قنوات الألوان لتحديد خط الرسم
     drawn_mask = (img[:, :, 0] > 20) | (img[:, :, 1] > 20) | (img[:, :, 2] > 20)
 
     h, w = drawn_mask.shape
@@ -60,8 +59,8 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
         elif len(y_points) > 0:
             y_points.append(y_points[-1])
 
-    if len(y_points) < 10:
-        st.error("لم يتم العثور على رسمة سليمة داخل اللوحة. ارسم خطاً واضحاً من اليسار لليمن ثم جرب مجدداً.")
+    if len(y_points) < 5:
+        st.error("الرسمة قصيرة جداً. يرجى رسم مسار واضح ينتهي باتجاه اليمين ثم اضغط الزر.")
         st.stop()
 
     user_pattern = np.array(y_points, dtype=np.float64)
