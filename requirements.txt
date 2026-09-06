@@ -1,7 +1,6 @@
-streamlit
+streamlit>=1.30.0
+streamlit-drawable-canvas==0.9.3
 yfinance
 numpy
-opencv-python-headless
 matplotlib
-scipy
-streamlit-drawable-canvas
+opencv-python-headless
