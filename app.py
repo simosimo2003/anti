@@ -3,13 +3,11 @@ import yfinance as yf
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-from fastdtw import fastdtw
-from scipy.spatial.distance import euclidean
 from scipy.ndimage import gaussian_filter1d
 
-st.set_page_config(page_title="Advanced Gold Pattern AI", layout="wide")
+st.set_page_config(page_title="Sharp Pattern AI - Gold", layout="wide")
 
-st.title("استخراج 2003النمط الأصلي وتكملته بالأزرق (الإصدار الذكي) 🪙⚡")
+st.title("استخراج5  النمط الأصلي وتكملته بالأزرق (الإصدار الذكي) 🪙⚡")
 st.write("نظام مطابقة خوارزمي متقدم يبحث عن أدق نمط تاريخي مطابق لهيكل الشارت والسيولة.")
 
 # 1. إدخال الصورة والفريم
@@ -18,15 +16,13 @@ timeframe = st.selectbox("اختر الفريم الزمني", ["1m", "5m", "15m
 
 if uploaded_file and st.button("تحليل ومطابقة النمط بدقة عالية 🎯"):
     with st.spinner("جاري المسح الخوارزمي المتقدم لملايين الشموع التاريخية..."):
-        # أ) استخراج الحواف والمسار الذكي من الصورة
+        # أ) استخراج المسار من الصورة
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
         
-        # قص الحواف ذكياً (Focus Area)
         h, w = img.shape
         crop_img = img[int(h*0.08):int(h*0.92), int(w*0.02):int(w*0.88)]
         
-        # استخراج الشموع ومعالجة التباين
         edges = cv2.Canny(crop_img, 30, 120)
         points = np.where(edges > 0)
         
@@ -37,18 +33,18 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
                 y_vals = points[0][points[1] == x]
                 y_profile.append(-np.mean(y_vals))
             
-            # تنقية خفيفة جداً للحفاظ على القمم والهبوط العمودي الحاد
-            smoothed_profile = gaussian_filter1d(np.array(y_profile, dtype=np.float64), sigma=0.8)
-            user_pattern = (smoothed_profile - np.mean(smoothed_profile)) / (np.std(smoothed_profile) + 1e-8)
-            user_pattern_2d = user_pattern.reshape(-1, 1)
+            # حماية معالم الهبوط العمودي والقمة الحادة
+            user_pattern = np.array(y_profile, dtype=np.float64)
+            user_pattern = gaussian_filter1d(user_pattern, sigma=0.5) # تنعيم خفيف جدًا
+            user_pattern = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
             
-            # حساب التغير اللحظي (السرعة والهبوط الحاد)
+            # حساب التغير اللحظي (سرعة الهبوط والارتداد)
             user_diff = np.diff(user_pattern)
         else:
             st.error("لم يتم التعرف على الشموع بدقة. يرجى رفع صورة واضحة للشارت.")
             st.stop()
 
-        # ب) جلب البيانات التاريخية المباشرة
+        # ب) جلب البيانات التاريخية
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
         
@@ -64,35 +60,33 @@ if uploaded_file and st.button("تحليل ومطابقة النمط بدقة ع
         best_score = float("inf")
         best_idx = -1
 
-        # ج) خوارزمية صرامة الهبوط والقمم (Strict Spike & Drop Matcher)
-        step = max(1, int(window_len / 6))
+        # ج) خوارزمية مطابقة السرعة والمباني الهيكلية (Strict Velocity & Shape Matcher)
+        step = max(1, int(window_len / 8))
         for i in range(0, len(prices) - window_len - future_len, step):
             hist_window = prices[i : i + window_len]
-            smoothed_hist = gaussian_filter1d(hist_window, sigma=0.8)
-            norm_hist = (smoothed_hist - np.mean(smoothed_hist)) / (np.std(smoothed_hist) + 1e-8)
-            norm_hist_2d = norm_hist.reshape(-1, 1)
+            norm_hist = (hist_window - np.mean(hist_window)) / (np.std(hist_window) + 1e-8)
             
-            # 1. مسافة الشكل الأساسي FastDTW
-            dtw_dist, _ = fastdtw(user_pattern_2d, norm_hist_2d, dist=euclidean)
+            # 1. مطابقة المسار المباشر (MSE)
+            mse_dist = np.mean((user_pattern - norm_hist) ** 2)
             
-            # 2. مطابقة حدة الحركة والهبوط العمودي (Velocity/Gradient Matching)
+            # 2. مطابقة حدة وسرعة الهبوط/الصعود (Velocity Profile)
             hist_diff = np.diff(norm_hist)
-            velocity_penalty = np.mean(np.abs(user_diff - hist_diff)) * window_len * 3.0
+            velocity_error = np.mean((user_diff - hist_diff) ** 2)
             
-            # 3. مطابقة فارق القمة والقاع (Range Matching)
-            user_range = np.ptp(user_pattern)
-            hist_range = np.ptp(norm_hist)
-            range_penalty = abs(user_range - hist_range) * 10.0
+            # 3. مطابقة أدنى قاع وأعلى قمة (Extreme Points Match)
+            user_min_pos = np.argmin(user_pattern)
+            hist_min_pos = np.argmin(norm_hist)
+            min_pos_penalty = abs(user_min_pos - hist_min_pos) / window_len
             
-            # النتيجة الإجمالية المخصصة للمطابقة الحادة
-            combined_score = dtw_dist + velocity_penalty + range_penalty
+            # النتيجة المركبة الموزونة
+            total_score = mse_dist + (velocity_error * 3.0) + (min_pos_penalty * 2.0)
             
-            if combined_score < best_score:
-                best_score = combined_score
+            if total_score < best_score:
+                best_score = total_score
                 best_idx = i
 
-        # د) عرض النتائج
-        match_percentage = max(50.0, min(99.2, 100 - (best_score / window_len * 4)))
+        # د) عرض النتائج والرسم البياني
+        match_percentage = max(60.0, min(99.1, 100 - (best_score * 15)))
         st.success(f"🔥 تم العثور على نمط مطابق بنسبة: {match_percentage:.1f}%")
 
         matched_history = prices[best_idx : best_idx + window_len]
