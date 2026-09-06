@@ -1,12 +1,24 @@
 import time
+# ---------------------------------------------------------------------------
+# المتطلبات (شغّل مرة واحدة قبل التشغيل):
+# pip install streamlit yfinance opencv-python-headless numpy pandas matplotlib scipy streamlit-drawable-canvas
+# تشغيل التطبيق: streamlit run gold_pattern_matcher_max.py
+# ---------------------------------------------------------------------------
 import streamlit as st
 import yfinance as yf
 import numpy as np
 import pandas as pd
 import cv2
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from scipy.ndimage import gaussian_filter1d
 from numpy.lib.stride_tricks import sliding_window_view
+
+try:
+    from streamlit_drawable_canvas import st_canvas
+    CANVAS_AVAILABLE = True
+except ImportError:
+    CANVAS_AVAILABLE = False
 
 st.set_page_config(page_title="محرك مطابقة الأنماط - الوضع الأقصى", layout="wide")
 
@@ -25,9 +37,47 @@ st.warning(
 # ---------------------------------------------------------------------------
 # إعدادات المستخدم
 # ---------------------------------------------------------------------------
-col_a, col_b, col_c = st.columns([2, 1, 1])
-with col_a:
+input_mode = st.radio(
+    "طريقة إدخال النمط",
+    ["📤 رفع صورة الشارت", "✏️ رسم النمط مباشرة (أسرع وأدق — بدون معالجة صورة)"],
+    horizontal=True,
+)
+
+uploaded_file = None
+canvas_pattern_source = None
+
+if input_mode.startswith("📤"):
     uploaded_file = st.file_uploader("ارفع صورة الشارت الأصلي", type=["png", "jpg", "jpeg"])
+else:
+    if not CANVAS_AVAILABLE:
+        st.error(
+            "مكتبة الرسم غير مثبّتة. ثبّتها أولاً بالأمر:\n\n"
+            "`pip install streamlit-drawable-canvas`\n\n"
+            "ثم أعد تشغيل التطبيق."
+        )
+    else:
+        if "canvas_reset_key" not in st.session_state:
+            st.session_state.canvas_reset_key = 0
+
+        st.write("ارسم حركة السعر بحرية في المساحة الكبيرة أدناه (من اليسار إلى اليمين):")
+        canvas_result = st_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_width=4,
+            stroke_color="#00f2fe",
+            background_color="#131722",
+            height=520,
+            width=1100,
+            drawing_mode="freedraw",
+            key=f"draw_canvas_{st.session_state.canvas_reset_key}",
+        )
+        if st.button("🗑️ مسح الرسم والبدء من جديد"):
+            st.session_state.canvas_reset_key += 1
+            st.rerun()
+
+        if canvas_result is not None and canvas_result.image_data is not None:
+            canvas_pattern_source = canvas_result.image_data
+
+col_b, col_c = st.columns(2)
 with col_b:
     timeframe = st.selectbox("الفريم الزمني", ["1m", "5m", "15m", "1h", "1d"], index=3)
 with col_c:
@@ -61,8 +111,20 @@ else:
 
 BASE_PATTERN_LEN = 120
 COMMON_HORIZON_POINTS = 60   # طول موحّد (نسبي) لدمج مسارات المستقبل مهما اختلف مقياس النمط
+MAX_DISPLAY_MATCHES = 4      # أقصى عدد صور تفصيلية للتطابقات مهما زاد عدد الحالات المكتشفة
 
 run = st.button("🚀 ابدأ البحث الشامل العميق")
+
+st.divider()
+st.subheader("🧪 اختبار دقة المنهجية تاريخيًا (Backtest)")
+st.caption(
+    "لا يحتاج صورة. يأخذ مئات النقاط الحقيقية من تاريخ نفس المصدر، ولكل نقطة يشغّل "
+    "نفس خوارزمية البحث بالضبط على البيانات **السابقة فقط لها** (بدون أي اطّلاع على المستقبل)، "
+    "ثم يقارن توقّعها بما حدث فعليًا بعدها. هذا هو المقياس الصادق لمدى فائدة الطريقة — "
+    "وليس افتراضًا أو وعدًا."
+)
+n_backtest = st.slider("عدد نقاط الاختبار", 50, 400, 150, step=25)
+run_backtest = st.button("🧪 شغّل اختبار الأداء التاريخي الآن")
 
 # ---------------------------------------------------------------------------
 # 1) استخراج النمط من الصورة
@@ -86,6 +148,24 @@ def extract_pattern_from_image(file_bytes: np.ndarray):
     x_unique = np.unique(xs)
     y_profile = np.array([-np.mean(ys[xs == x]) for x in x_unique], dtype=np.float64)
     y_profile = gaussian_filter1d(y_profile, sigma=0.6)
+
+    x_old = np.linspace(0, 1, len(y_profile))
+    x_new = np.linspace(0, 1, BASE_PATTERN_LEN)
+    y_resampled = np.interp(x_new, x_old, y_profile)
+
+    pattern = (y_resampled - np.mean(y_resampled)) / (np.std(y_resampled) + 1e-8)
+    return pattern
+
+
+def extract_pattern_from_canvas(image_data: np.ndarray):
+    """أسرع من مسار الصورة: لا حاجة لـ Canny/طمس لأن الخط المرسوم نظيف أصلاً (لا ضجيج خلفية)."""
+    alpha = image_data[:, :, 3]
+    ys, xs = np.where(alpha > 10)
+    if len(xs) == 0:
+        return None
+
+    x_unique = np.unique(xs)
+    y_profile = np.array([-np.mean(ys[xs == x]) for x in x_unique], dtype=np.float64)
 
     x_old = np.linspace(0, 1, len(y_profile))
     x_new = np.linspace(0, 1, BASE_PATTERN_LEN)
@@ -119,6 +199,31 @@ def get_close_series(df: pd.DataFrame) -> np.ndarray:
     else:
         close = df["Close"]
     return close.values.astype(np.float64).flatten()
+
+
+def get_ohlc(df: pd.DataFrame):
+    """يرجع مصفوفات Open/High/Low/Close منفصلة لاستخدامها في رسم الشموع اليابانية الدقيقة."""
+    cols = {}
+    for name in ["Open", "High", "Low", "Close"]:
+        if isinstance(df.columns, pd.MultiIndex):
+            series = df.xs(name, axis=1, level=0).iloc[:, 0]
+        else:
+            series = df[name]
+        cols[name] = series.values.astype(np.float64).flatten()
+    return cols["Open"], cols["High"], cols["Low"], cols["Close"]
+
+
+def plot_candlesticks(ax, opens, highs, lows, closes, start_x=0, width=0.6):
+    """رسم شموع يابانية بسيط بدون الحاجة لمكتبة خارجية إضافية (أدق من خط الإغلاق فقط)."""
+    up_color, down_color = "#26a69a", "#ef5350"
+    for i in range(len(closes)):
+        x = start_x + i
+        o, h, l, c = opens[i], highs[i], lows[i], closes[i]
+        color = up_color if c >= o else down_color
+        ax.plot([x, x], [l, h], color=color, linewidth=1)
+        rect = Rectangle((x - width / 2, min(o, c)), width, max(abs(c - o), 1e-6),
+                          facecolor=color, edgecolor=color)
+        ax.add_patch(rect)
 
 
 PERIOD_MAP = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
@@ -177,14 +282,90 @@ def intervals_overlap(a_start, a_end, b_start, b_end, max_ratio=0.3):
 
 
 # ---------------------------------------------------------------------------
+# 5) اختبار الأداء التاريخي (Backtest) — بدون أي تسريب من المستقبل
+# ---------------------------------------------------------------------------
+def run_backtest_on_series(prices: np.ndarray, w: int, n_points: int, top_n: int = 5):
+    future_len = max(2, w // 2)
+    min_start = w + 5
+    max_start = len(prices) - future_len - 5
+    if max_start <= min_start:
+        return None
+
+    anchors = np.linspace(min_start, max_start, num=min(n_points, max_start - min_start), dtype=int)
+    anchors = np.unique(anchors)
+
+    predicted_list, actual_list, hits = [], [], []
+
+    for anchor in anchors:
+        query_raw = prices[anchor - w: anchor]
+        query = (query_raw - np.mean(query_raw)) / (np.std(query_raw) + 1e-8)
+
+        search_space = prices[: anchor - w]   # فقط بيانات سابقة فعليًا لهذه النقطة — لا تسريب
+        result = vectorized_prescreen(search_space, query)
+        if result is None:
+            continue
+
+        composite = result["composite"]
+        top_idx = np.argsort(composite)[:top_n]
+
+        weighted_preds = []
+        wts = []
+        for rank, idx in enumerate(top_idx, start=1):
+            idx = int(idx)
+            hist_window = search_space[idx: idx + w]
+            fut = search_space[idx + w: idx + w + future_len]
+            if len(fut) < 2:
+                continue
+            pct = (fut[-1] / hist_window[-1] - 1.0) * 100.0
+            weighted_preds.append(pct)
+            wts.append(1.0 / rank)
+
+        if not weighted_preds:
+            continue
+
+        wts = np.array(wts) / np.sum(wts)
+        predicted_final = float(np.average(weighted_preds, weights=wts))
+
+        actual_final = float((prices[anchor + future_len - 1] / prices[anchor - 1] - 1.0) * 100.0)
+
+        predicted_list.append(predicted_final)
+        actual_list.append(actual_final)
+        # يُحتسب "إصابة" إذا اتفقت إشارة الاتجاه (صعود/هبوط) بين التوقع والواقع
+        hits.append(np.sign(predicted_final) == np.sign(actual_final) and predicted_final != 0)
+
+    if len(predicted_list) < 5:
+        return None
+
+    predicted_arr = np.array(predicted_list)
+    actual_arr = np.array(actual_list)
+    hit_rate = float(np.mean(hits) * 100.0)
+    mae = float(np.mean(np.abs(predicted_arr - actual_arr)))
+    corr = float(np.corrcoef(predicted_arr, actual_arr)[0, 1]) if len(predicted_arr) > 2 else 0.0
+
+    return {
+        "n": len(predicted_list),
+        "hit_rate": hit_rate,
+        "mae": mae,
+        "corr": corr,
+        "predicted": predicted_arr,
+        "actual": actual_arr,
+    }
+
+
+# ---------------------------------------------------------------------------
 # التشغيل الرئيسي
 # ---------------------------------------------------------------------------
-if uploaded_file and run:
+has_input = uploaded_file is not None or canvas_pattern_source is not None
+
+if has_input and run:
     t_start = time.time()
 
-    with st.spinner("جاري استخراج النمط من الصورة..."):
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        base_pattern = extract_pattern_from_image(file_bytes)
+    with st.spinner("جاري استخراج النمط..."):
+        if uploaded_file is not None:
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+            base_pattern = extract_pattern_from_image(file_bytes)
+        else:
+            base_pattern = extract_pattern_from_canvas(canvas_pattern_source)
 
     if base_pattern is None:
         st.error("لم يتم التعرف على حركة الشموع. يرجى رفع صورة أوضح للشارت.")
@@ -197,12 +378,14 @@ if uploaded_file and run:
     step = 0
 
     price_cache = {}
+    ohlc_cache = {}
     for ticker in selected_tickers:
         data = fetch_data(ticker, period, timeframe)
         if data is None or data.empty:
             st.warning(f"تعذر جلب بيانات المصدر {ticker} — سيتم تجاهله.")
             continue
         price_cache[ticker] = (get_close_series(data), data.index)
+        ohlc_cache[ticker] = get_ohlc(data)
 
     for ticker, (prices, timestamps) in price_cache.items():
         for scale in SCALE_FACTORS:
@@ -330,49 +513,3 @@ if uploaded_file and run:
         weighted_mean_path = np.average(matrix, axis=0, weights=w_arr)
         weighted_var_path = np.average((matrix - weighted_mean_path) ** 2, axis=0, weights=w_arr)
         weighted_std_path = np.sqrt(weighted_var_path)
-
-        # مقياس "قوة/اتساق الإشارة": كلما قل التشتت الموزون نسبة لحجم الحركة المتوقعة زادت الثقة النسبية
-        signal_consistency = float(np.clip(
-            100 * (1 - (weighted_std_path.mean() / (np.abs(weighted_mean_path).mean() + 1e-6 + weighted_std_path.mean()))),
-            0, 100
-        ))
-
-        st.metric("🎯 مؤشر اتساق الحالات التاريخية (ليس احتمال ربح)", f"{signal_consistency:.1f}%")
-        st.caption(
-            "هذا المؤشر يقيس فقط مدى تقارب النتائج فيما بينها بعد الحالات المشابهة تاريخيًا — "
-            "ارتفاعه يعني أن الحالات المشابهة تصرّفت بشكل متقارب، وانخفاضه يعني تشتتًا كبيرًا "
-            "(أي أن الاعتماد على النمط وحده غير موثوق في هذه الحالة)."
-        )
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        hist_slice = best["prices"][best["idx"]: best["idx"] + w_best]
-        ax.plot(range(w_best), hist_slice,
-                label=f"أفضل نمط مطابق ({best['ticker']}, ×{best['scale']:.2f})",
-                color="#00f2fe", linewidth=2.2)
-
-        base_price = hist_slice[-1]
-        x_future = np.linspace(w_best - 1, w_best - 1 + w_best // 2, COMMON_HORIZON_POINTS)
-
-        mean_price_path = base_price * (1 + weighted_mean_path / 100.0)
-        upper_price_path = base_price * (1 + (weighted_mean_path + weighted_std_path) / 100.0)
-        lower_price_path = base_price * (1 + (weighted_mean_path - weighted_std_path) / 100.0)
-
-        ax.plot(x_future, mean_price_path, color="#1e90ff", linewidth=3.2,
-                label=f"المسار المرجّح الأقوى (توقّع مبني على {len(final_selection)} حالة مرجّحة)")
-        ax.fill_between(x_future, lower_price_path, upper_price_path,
-                         color="#1e90ff", alpha=0.18, label="نطاق التذبذب التاريخي حول التوقع")
-
-        ax.axvline(x=w_best - 1, color="#ffd700", linestyle="--", alpha=0.9,
-                   label="نقطة نهاية النمط الحالي")
-
-        ax.set_facecolor("#131722")
-        fig.patch.set_facecolor("#131722")
-        ax.tick_params(colors="white")
-        ax.grid(True, color="#2a2e39", linestyle=":", alpha=0.6)
-        ax.legend(facecolor="#1e222d", edgecolor="#2a2e39", labelcolor="white", loc="upper left", fontsize=9)
-        ax.set_title("النمط المطابق + المسار المرجّح الأقوى (بحث متعدد المقاييس والمصادر)", color="white")
-
-        st.pyplot(fig)
-    else:
-        st.warning("عدد الحالات الصالحة لبناء توقع مرجّح غير كافٍ.")
