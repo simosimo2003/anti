@@ -32,44 +32,41 @@ with col2:
     )
 
 if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
-    # معالجة آمنة لتفادي RuntimeError
+    # استخراج مصفوفة الصورة بأمان
     img_data = None
-    if canvas_result is not None:
-        try:
-            img_data = canvas_result.image_data
-        except Exception:
-            img_data = None
+    if canvas_result is not None and canvas_result.image_data is not None:
+        img_data = canvas_result.image_data
 
     if img_data is None:
         st.error("يرجى الرسم أولاً داخل اللوحة السوداء قبل بدء المسح.")
         st.stop()
-        
+
     img = img_data.astype(np.uint8)
     
-    # تحويل الصورة المستخرجة من اللوحة إلى التدرج الرمادي
-    gray = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
-    
-    # استخراج مسار السعر المنحوت باليد
-    h, w = gray.shape
+    # دمج قنوات الألوان للتعرف على الخط بغض النظر عن درجته
+    # نأخذ العتبة من القنوات الثلاث (RGB) لمعرفة الأماكن المرسومة
+    drawn_mask = (img[:, :, 0] > 30) | (img[:, :, 1] > 30) | (img[:, :, 2] > 30)
+
+    h, w = drawn_mask.shape
     y_points = []
-    
+
+    # استخراج مسار السعر العمودي لكل عمود
     for col in range(w):
-        pos = np.where(gray[:, col] > 0)[0]
+        pos = np.where(drawn_mask[:, col])[0]
         if len(pos) > 0:
             y_points.append(-float(np.mean(pos)))
         elif len(y_points) > 0:
             y_points.append(y_points[-1]) # استكمال الفجوات بين النقاط
 
-    if len(y_points) < 15:
-        st.error("لم يتم التعرف على رسم واضح. يرجى الرسم داخل اللوحة بوضوح ثم اضغط زر المسح.")
+    if len(y_points) < 10:
+        st.error("يرجى الرسم داخل اللوحة السوداء أولاً، ثم اضغط زر المسح.")
         st.stop()
 
     user_pattern = np.array(y_points, dtype=np.float64)
     norm_user = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
-    user_drop = np.min(np.diff(norm_user)) # قياس زاوية وأقصى انكسار هبوط في الرسم
+    user_drop = np.min(np.diff(norm_user))
 
     with st.spinner("جاري المسح التاريخي العميق (شمعة بشمعة) عبر كامل تاريخ الذهب..."):
-        # 2. جلب البيانات التاريخية
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
         
@@ -89,7 +86,7 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
         user_min_pos = np.argmin(norm_user)
         user_max_pos = np.argmax(norm_user)
 
-        # 3. مسح دقيق ومكثف شمعة بشمعة
+        # مسح شامل ودقيق شمعة بشمعة
         for i in range(0, len(prices) - window_len - future_len, 1):
             hist_window = prices[i : i + window_len]
             std_dev = np.std(hist_window)
@@ -120,7 +117,7 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
             st.error("لم يتم العثور على نمط مطابق للرسم. جرب تغيير الفريم الزمني.")
             st.stop()
 
-        # 4. استخراج التواريخ المباشرة وعرض الرسم البياني
+        # استخراج التواريخ المباشرة وعرض الرسم البياني
         match_start_time = timestamps[best_idx].strftime('%Y-%m-%d %H:%M')
         match_end_time = timestamps[best_idx + window_len].strftime('%Y-%m-%d %H:%M')
         
