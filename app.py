@@ -68,11 +68,17 @@ else:
             height=520,
             width=1100,
             drawing_mode="freedraw",
+            return_image_data=True,  # مطلوب في الإصدارات الحديثة من المكتبة، وإلا ترمي RuntimeError
             key=f"draw_canvas_{st.session_state.canvas_reset_key}",
         )
-        if st.button("🗑️ مسح الرسم والبدء من جديد"):
-            st.session_state.canvas_reset_key += 1
-            st.rerun()
+
+        col_clear, col_note = st.columns([1, 3])
+        with col_clear:
+            if st.button("🗑️ مسح الرسم"):
+                st.session_state.canvas_reset_key += 1
+                st.rerun()
+        with col_note:
+            st.caption("زر البحث الرئيسي 🔍 «ابحث الآن» موجود أسفل الصفحة بعد إعدادات المصدر والفريم الزمني.")
 
         if canvas_result is not None and canvas_result.image_data is not None:
             canvas_pattern_source = canvas_result.image_data
@@ -113,7 +119,7 @@ BASE_PATTERN_LEN = 120
 COMMON_HORIZON_POINTS = 60   # طول موحّد (نسبي) لدمج مسارات المستقبل مهما اختلف مقياس النمط
 MAX_DISPLAY_MATCHES = 4      # أقصى عدد صور تفصيلية للتطابقات مهما زاد عدد الحالات المكتشفة
 
-run = st.button("🚀 ابدأ البحث الشامل العميق")
+run = st.button("🔍 ابحث الآن (زر البحث الرئيسي)")
 
 st.divider()
 st.subheader("🧪 اختبار دقة المنهجية تاريخيًا (Backtest)")
@@ -506,10 +512,4 @@ if has_input and run:
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
     if len(normalized_future_paths) >= 2:
-        matrix = np.array(normalized_future_paths)          # (k, COMMON_HORIZON_POINTS)
-        w_arr = np.array(weights)
-        w_arr = w_arr / w_arr.sum()
-
-        weighted_mean_path = np.average(matrix, axis=0, weights=w_arr)
-        weighted_var_path = np.average((matrix - weighted_mean_path) ** 2, axis=0, weights=w_arr)
-        weighted_std_path = np.sqrt(weighted_var_path)
+        matrix = np.array(normalized_future_paths)          # (k, COMMON_HOR
