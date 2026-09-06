@@ -32,34 +32,36 @@ with col2:
     )
 
 if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
-    # استخراج مصفوفة الصورة بأمان
     img_data = None
-    if canvas_result is not None and canvas_result.image_data is not None:
-        img_data = canvas_result.image_data
+    
+    # حماية من RuntimeError عند قراءة image_data
+    if canvas_result is not None:
+        try:
+            img_data = canvas_result.image_data
+        except Exception:
+            img_data = None
 
     if img_data is None:
-        st.error("يرجى الرسم أولاً داخل اللوحة السوداء قبل بدء المسح.")
+        st.error("يرجى الرسم أولاً داخل اللوحة السوداء والانتظار لحظة قبل بدء المسح.")
         st.stop()
 
     img = img_data.astype(np.uint8)
     
-    # دمج قنوات الألوان للتعرف على الخط بغض النظر عن درجته
-    # نأخذ العتبة من القنوات الثلاث (RGB) لمعرفة الأماكن المرسومة
-    drawn_mask = (img[:, :, 0] > 30) | (img[:, :, 1] > 30) | (img[:, :, 2] > 30)
+    # دمج القنوات لتحديد البكسلات المرسومة
+    drawn_mask = (img[:, :, 0] > 20) | (img[:, :, 1] > 20) | (img[:, :, 2] > 20)
 
     h, w = drawn_mask.shape
     y_points = []
 
-    # استخراج مسار السعر العمودي لكل عمود
     for col in range(w):
         pos = np.where(drawn_mask[:, col])[0]
         if len(pos) > 0:
             y_points.append(-float(np.mean(pos)))
         elif len(y_points) > 0:
-            y_points.append(y_points[-1]) # استكمال الفجوات بين النقاط
+            y_points.append(y_points[-1])
 
     if len(y_points) < 10:
-        st.error("يرجى الرسم داخل اللوحة السوداء أولاً، ثم اضغط زر المسح.")
+        st.error("لم يتم العثور على رسمة سليمة داخل اللوحة. ارسم خطاً واضحاً من اليسار لليمن ثم جرب مجدداً.")
         st.stop()
 
     user_pattern = np.array(y_points, dtype=np.float64)
@@ -86,7 +88,6 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
         user_min_pos = np.argmin(norm_user)
         user_max_pos = np.argmax(norm_user)
 
-        # مسح شامل ودقيق شمعة بشمعة
         for i in range(0, len(prices) - window_len - future_len, 1):
             hist_window = prices[i : i + window_len]
             std_dev = np.std(hist_window)
@@ -95,14 +96,10 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
                 
             norm_hist = (hist_window - np.mean(hist_window)) / std_dev
             
-            # مطابقة الشكل العام (MSE)
             shape_error = np.mean((norm_user - norm_hist) ** 2)
-            
-            # عقوبة اختلاف سرعة السقوط وزاوية الانهيار
             hist_drop = np.min(np.diff(norm_hist))
             drop_penalty = abs(user_drop - hist_drop) * 5.0
             
-            # عقوبة أماكن القاع والقمة
             hist_min_pos = np.argmin(norm_hist)
             hist_max_pos = np.argmax(norm_hist)
             align_penalty = (abs(user_min_pos - hist_min_pos) + abs(user_max_pos - hist_max_pos)) / window_len
@@ -117,7 +114,6 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
             st.error("لم يتم العثور على نمط مطابق للرسم. جرب تغيير الفريم الزمني.")
             st.stop()
 
-        # استخراج التواريخ المباشرة وعرض الرسم البياني
         match_start_time = timestamps[best_idx].strftime('%Y-%m-%d %H:%M')
         match_end_time = timestamps[best_idx + window_len].strftime('%Y-%m-%d %H:%M')
         
@@ -130,17 +126,12 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
         matched_future = prices[best_idx + window_len : best_idx + window_len + future_len]
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        
-        # رسم النمط المطابق تاريخياً
         ax.plot(range(len(matched_history)), matched_history, label="النمط المطابق تاريخياً لرسمتك", color="#00f2fe", linewidth=2.5)
-        
-        # رسم المسار القادم المتوقع
         ax.plot(range(len(matched_history)-1, len(matched_history) + len(matched_future)), 
                 np.insert(matched_future, 0, matched_history[-1]), 
                 label="المسار القادم المتوقع", color="#1e90ff", linewidth=3.5, linestyle="-")
         
-        # خط نقطة الانطلاق
-        ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.9, label="نقطة الانطلاق الحالية (تنسيخ التوقع)")
+        ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.9, label="نقطة الانطلاق الحالية")
         
         ax.set_facecolor("#131722")
         fig.patch.set_facecolor("#131722")
