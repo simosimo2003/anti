@@ -1,8 +1,7 @@
 streamlit
 yfinance
-opencv-python-headless
 numpy
-pandas
+opencv-python-headless
 matplotlib
 scipy
-streamlit-drawable-canvas>=0.10.0
+streamlit-drawable-canvas
