@@ -4,59 +4,51 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Gold Pattern Precision AI", layout="wide")
+st.set_page_config(page_title="Gold Line Matcher AI", layout="wide")
 
-st.title("محرك مطابقة الذهب التاريخي الفائق 🪙⚡")
-st.write("اختر طريقة إدخال النمط للحصول على أدق مطابقة تاريخية وتوقع مستقبلي.")
+st.title("محرك مطابقة خط الشارت المباشر 🪙⚡")
 
-mode = st.radio("طريقة تحديد النمط:", ["رفع صورة الشارت", "إدخال الهبوط/الارتفاع بالنقاط (دقة 100%)"])
-
+uploaded_file = st.file_uploader("ارفع صورة الشارت المقصوصة", type=["png", "jpg", "jpeg"])
 timeframe = st.selectbox("اختر الفريم الزمني", ["1m", "5m", "15m", "1h", "1d"])
 
-user_pattern = None
-
-if mode == "رفع صورة الشارت":
-    uploaded_file = st.file_uploader("ارفع صورة الشارت (يفضل قص الأرقام والحواف)", type=["png", "jpg", "jpeg"])
-    if uploaded_file:
+if uploaded_file and st.button("بدء المسح الحقيقي 🎯"):
+    with st.spinner("جاري استخراج خط السعر البنفسجي وتصفية الخلفية..."):
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         
-        # تحويل للتدرج الرمادي واستخراج أعلى تباين للخط
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        h, w = gray.shape
+        # تحويل الألوان لنطاق HSV لعزل اللون البنفسجي/الأزرق بدقة
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
-        # تركيز على وسط الصورة لتفادي أرقام TradingView
-        crop = gray[int(h*0.1):int(h*0.9), int(w*0.05):int(w*0.85)]
-        hc, wc = crop.shape
+        # درجة اللون البنفسجي الخاص بشارت TradingView الظاهر في صورتك
+        lower_purple = np.array([100, 30, 40])
+        upper_purple = np.array([160, 255, 255])
+        mask = cv2.inRange(hsv, lower_purple, upper_purple)
         
+        # إذا كانت الصورة مقصوصة بشكل جيد، نستخرج مسار السعر
+        h, w = mask.shape
         y_points = []
-        for col in range(wc):
-            # أخذ أعمق نقطة سوداء/داكنة أو مضيئة ممثلة للرسم
-            col_data = crop[:, col]
-            min_pos = np.argmin(col_data)
-            y_points.append(-float(min_pos))
-            
+        
+        for col in range(w):
+            pos = np.where(mask[:, col] > 0)[0]
+            if len(pos) > 0:
+                y_points.append(-float(np.mean(pos)))
+            elif len(y_points) > 0:
+                y_points.append(y_points[-1]) # استكمال النقاط المفقودة
+
+        if len(y_points) < 20:
+            st.error("لم يتمكن السكربت من العثور على الخط البنفسجي. يرجى قص حواف الصورة والتركيز على الخط فقط.")
+            st.stop()
+
         user_pattern = np.array(y_points, dtype=np.float64)
-
-else:
-    st.info("أدخل سلوك السعر التقريبي (مثال: 2000 ثم سقوط حاد إلى 1950 ثم ارتداد لـ 1970)")
-    points_str = st.text_input("أدخل قيم السعر تفصل بينها فاصلة (مثال: 2000, 2005, 1950, 1955, 1970):", "2000, 2002, 1950, 1955, 1970")
-    try:
-        user_pattern = np.array([float(x.strip()) for x in points_str.split(",")], dtype=np.float64)
-    except:
-        st.error("يرجى إدخال أرقام صحيحة تفصل بينها فاصلة.")
-
-if user_pattern is not None and st.button("بدء المسح التاريخي الحقيقي 🎯"):
-    with st.spinner("جاري المسح شمعة بشمعة عبر التاريخ..."):
-        # معايرة النمط
         norm_user = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
-        user_drop = np.min(np.diff(norm_user)) # زاوية الهبوط الحاد
+        user_drop = np.min(np.diff(norm_user)) # قياس زاوية السقوط الحاد
 
+    with st.spinner("جاري البحث في تاريخ الذهب عن النمط المطابق..."):
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
         
         if data.empty:
-            st.error("تعذر جلب البيانات المالية المباشرة.")
+            st.error("تعذر جلب البيانات المالية.")
             st.stop()
 
         prices = data['Close'].values.flatten().astype(np.float64)
@@ -77,7 +69,7 @@ if user_pattern is not None and st.button("بدء المسح التاريخي ا
             hist_drop = np.min(np.diff(norm_hist))
             
             shape_diff = np.mean(np.abs(norm_user - norm_hist))
-            drop_penalty = abs(user_drop - hist_drop) * 6.0 # عقوبة زاوية الهبوط
+            drop_penalty = abs(user_drop - hist_drop) * 8.0 # عقوبة حازمة للهبوط العمودي
             
             score = shape_diff + drop_penalty
             
