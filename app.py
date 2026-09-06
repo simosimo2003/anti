@@ -32,11 +32,20 @@ with col2:
     )
 
 if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
-    if canvas_result.image_data is None:
+    # معالجة آمنة لتفادي RuntimeError
+    img_data = None
+    if canvas_result is not None:
+        try:
+            img_data = canvas_result.image_data
+        except Exception:
+            img_data = None
+
+    if img_data is None:
         st.error("يرجى الرسم أولاً داخل اللوحة السوداء قبل بدء المسح.")
         st.stop()
         
-    img = canvas_result.image_data.astype(np.uint8)
+    img = img_data.astype(np.uint8)
+    
     # تحويل الصورة المستخرجة من اللوحة إلى التدرج الرمادي
     gray = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
     
@@ -52,14 +61,14 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
             y_points.append(y_points[-1]) # استكمال الفجوات بين النقاط
 
     if len(y_points) < 15:
-        st.error("لم يتم العثور على رسم واضح. يرجى الرسم من يسار اللوحة إلى يمينها بوضوح.")
+        st.error("لم يتم التعرف على رسم واضح. يرجى الرسم داخل اللوحة بوضوح ثم اضغط زر المسح.")
         st.stop()
 
     user_pattern = np.array(y_points, dtype=np.float64)
     norm_user = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
     user_drop = np.min(np.diff(norm_user)) # قياس زاوية وأقصى انكسار هبوط في الرسم
 
-    with st.spinner("جاري المسح التاريخي العميق (شمعة بشمعة) عبر كامل تاريخ الذهب... قد يستغرق لحظات..."):
+    with st.spinner("جاري المسح التاريخي العميق (شمعة بشمعة) عبر كامل تاريخ الذهب..."):
         # 2. جلب البيانات التاريخية
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
@@ -80,7 +89,7 @@ if st.button("بدء المسح التاريخي العميق والدقيق �
         user_min_pos = np.argmin(norm_user)
         user_max_pos = np.argmax(norm_user)
 
-        # 3. مسح دقيق ومكثف شمعة بشمعة بدون استثناء
+        # 3. مسح دقيق ومكثف شمعة بشمعة
         for i in range(0, len(prices) - window_len - future_len, 1):
             hist_window = prices[i : i + window_len]
             std_dev = np.std(hist_window)
