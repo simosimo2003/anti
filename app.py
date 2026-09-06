@@ -1,49 +1,66 @@
 import streamlit as st
 import yfinance as yf
 import numpy as np
-import cv2
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter1d
+from streamlit_drawable_canvas import st_canvas
+import cv2
 
-st.set_page_config(page_title="Deep Pattern Matcher AI", layout="wide")
+st.set_page_config(page_title="Ultra Draw & Match AI", layout="wide")
 
-st.title("مطابقة النمط التاريخي بدقة فائقة 🪙⚡")
-st.write("نظام مسح شامل (شمعة بشمعة) لاستخراج أدق نمط تاريخي مطابق واستخراج تاريخ حدوثه المباشر.")
+st.title("محرك الرسم والتطابق التاريخي للذهب 🪙⚡")
+st.write("ارسم النمط المباشر بيدك على اللوحة السوداء أدناه، وسيقوم النظام بالبحث العميق شمعة بشمعة عبر تاريخ الذهب ليعطيك النمط المطابق والتوقع المستقبلي.")
 
-# 1. إدخال الصورة والفريم
-uploaded_file = st.file_uploader("ارفع صورة الشارت الأصلي", type=["png", "jpg", "jpeg"])
-timeframe = st.selectbox("اختر الفريم الزمني", ["1m", "5m", "15m", "1h", "1d"])
+# 1. إعدادات اللوحة والفريم
+col1, col2 = st.columns([1, 3])
 
-if uploaded_file and st.button("بدء المسح التاريخي الشامل والعميق 🎯"):
-    with st.spinner("جاري إجراء مسح دقيق (شمعة بشمعة) عبر السلسلة الزمنية للذهب... قد يستغرق لحظات قليلة..."):
-        # أ) استخراج النمط الحقيقي من الصورة بدقة العالية
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
+with col1:
+    timeframe = st.selectbox("اختر الفريم الزمني", ["1m", "5m", "15m", "1h", "1d"])
+    stroke_width = st.slider("سمك خط الرسم:", 2, 10, 4)
+    st.info("💡 **طريقة الاستخدام:** ارسم النموذج من اليسار إلى اليمين داخل اللوحة السوداء بنفس شكل الحركة (قمة، قاع، أو هبوط عمودي).")
+
+with col2:
+    st.write("### 🎨 لوحة الرسم التفاعلية:")
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 165, 0, 0.3)",
+        stroke_width=stroke_width,
+        stroke_color="#00f2fe",
+        background_color="#131722",
+        height=320,
+        width=700,
+        drawing_mode="freedraw",
+        key="canvas",
+    )
+
+if st.button("بدء المسح التاريخي العميق والدقيق 🎯"):
+    if canvas_result.image_data is None:
+        st.error("يرجى الرسم أولاً داخل اللوحة السوداء قبل بدء المسح.")
+        st.stop()
         
-        h, w = img.shape
-        crop_img = img[int(h*0.08):int(h*0.92), int(w*0.02):int(w*0.88)]
-        
-        edges = cv2.Canny(crop_img, 30, 120)
-        points = np.where(edges > 0)
-        
-        if len(points[0]) > 0:
-            x_unique = np.unique(points[1])
-            y_profile = []
-            for x in x_unique:
-                y_vals = points[0][points[1] == x]
-                y_profile.append(-np.mean(y_vals))
-            
-            # الاحتفاظ بالصورة الأصلية بدون تشويه القمم أو الهبوط العمودي
-            raw_user_pattern = np.array(y_profile, dtype=np.float64)
-            user_pattern = gaussian_filter1d(raw_user_pattern, sigma=0.4) # تنعيم متناهي الصغر
-            user_pattern = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
-            
-            user_diff = np.diff(user_pattern)
-        else:
-            st.error("لم يتم التعرف على حركة الشموع. يرجى رفع صورة واضحة للشارت.")
-            st.stop()
+    img = canvas_result.image_data.astype(np.uint8)
+    # تحويل الصورة المستخرجة من اللوحة إلى التدرج الرمادي
+    gray = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
+    
+    # استخراج مسار السعر المنحوت باليد
+    h, w = gray.shape
+    y_points = []
+    
+    for col in range(w):
+        pos = np.where(gray[:, col] > 0)[0]
+        if len(pos) > 0:
+            y_points.append(-float(np.mean(pos)))
+        elif len(y_points) > 0:
+            y_points.append(y_points[-1]) # استكمال الفجوات بين النقاط
 
-        # ب) جلب البيانات التاريخية الكاملة مع التواريخ (Timestamps)
+    if len(y_points) < 15:
+        st.error("لم يتم العثور على رسم واضح. يرجى الرسم من يسار اللوحة إلى يمينها بوضوح.")
+        st.stop()
+
+    user_pattern = np.array(y_points, dtype=np.float64)
+    norm_user = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
+    user_drop = np.min(np.diff(norm_user)) # قياس زاوية وأقصى انكسار هبوط في الرسم
+
+    with st.spinner("جاري المسح التاريخي العميق (شمعة بشمعة) عبر كامل تاريخ الذهب... قد يستغرق لحظات..."):
+        # 2. جلب البيانات التاريخية
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
         
@@ -54,64 +71,69 @@ if uploaded_file and st.button("بدء المسح التاريخي الشامل 
         prices = data['Close'].values.flatten().astype(np.float64)
         timestamps = data.index
         
-        window_len = len(user_pattern)
+        window_len = len(norm_user)
         future_len = int(window_len * 0.5)
         
         best_score = float("inf")
         best_idx = -1
+        
+        user_min_pos = np.argmin(norm_user)
+        user_max_pos = np.argmax(norm_user)
 
-        # ج) مسح شامل حقيقي شمعة بشمعة (step = 1)
-        # البحث في كامل السلسلة بدون تخطي أي شمعة
+        # 3. مسح دقيق ومكثف شمعة بشمعة بدون استثناء
         for i in range(0, len(prices) - window_len - future_len, 1):
             hist_window = prices[i : i + window_len]
-            norm_hist = (hist_window - np.mean(hist_window)) / (np.std(hist_window) + 1e-8)
+            std_dev = np.std(hist_window)
+            if std_dev == 0:
+                continue
+                
+            norm_hist = (hist_window - np.mean(hist_window)) / std_dev
             
-            # 1. المطابقة الهيكلية الحادة
-            shape_error = np.mean(np.abs(user_pattern - norm_hist))
+            # مطابقة الشكل العام (MSE)
+            shape_error = np.mean((norm_user - norm_hist) ** 2)
             
-            # 2. مطابقة سرعة وانكسار الهبوط (Velocity Gradient)
-            hist_diff = np.diff(norm_hist)
-            velocity_error = np.mean(np.abs(user_diff - hist_diff))
+            # عقوبة اختلاف سرعة السقوط وزاوية الانهيار
+            hist_drop = np.min(np.diff(norm_hist))
+            drop_penalty = abs(user_drop - hist_drop) * 5.0
             
-            # 3. عقوبة الاختلاف في موقع أدنى قاع وأعلى قمة
-            user_min, user_max = np.argmin(user_pattern), np.argmax(user_pattern)
-            hist_min, hist_max = np.argmin(norm_hist), np.argmax(norm_hist)
-            extrema_penalty = (abs(user_min - hist_min) + abs(user_max - hist_max)) / window_len
+            # عقوبة أماكن القاع والقمة
+            hist_min_pos = np.argmin(norm_hist)
+            hist_max_pos = np.argmax(norm_hist)
+            align_penalty = (abs(user_min_pos - hist_min_pos) + abs(user_max_pos - hist_max_pos)) / window_len
             
-            score = shape_error + (velocity_error * 2.5) + (extrema_penalty * 1.5)
+            total_score = shape_error + drop_penalty + (align_penalty * 3.5)
             
-            if score < best_score:
-                best_score = score
+            if total_score < best_score:
+                best_score = total_score
                 best_idx = i
 
-        # د) استخراج التاريخ والنتائج
+        if best_idx == -1:
+            st.error("لم يتم العثور على نمط مطابق للرسم. جرب تغيير الفريم الزمني.")
+            st.stop()
+
+        # 4. استخراج التواريخ المباشرة وعرض الرسم البياني
         match_start_time = timestamps[best_idx].strftime('%Y-%m-%d %H:%M')
         match_end_time = timestamps[best_idx + window_len].strftime('%Y-%m-%d %H:%M')
         
-        # حساب نسبة المطابقة الواقعية
-        match_percentage = max(50.0, min(99.5, 100 - (best_score * 20)))
+        match_percentage = max(50.0, min(99.0, 100 - (best_score * 12)))
         
-        st.success(f"🔥 تم العثور على النمط المطابق بنسبة: **{match_percentage:.1f}%**")
-        st.info(f"📅 **تاريخ وقوع النمط في الماضي:** من **{match_start_time}** إلى **{match_end_time}**")
+        st.success(f"🔥 تم العثور على أحدث نمط تاريخي مطابق لرسمتك بنسبة: **{match_percentage:.1f}%**")
+        st.info(f"📅 **تاريخ وقوع هذا النمط في الماضي:** من **{match_start_time}** إلى **{match_end_time}**")
 
-        # هـ) رسم النمط المرفوع + المطابق التاريخي + التوقع القادم
         matched_history = prices[best_idx : best_idx + window_len]
         matched_future = prices[best_idx + window_len : best_idx + window_len + future_len]
         
-        # ضبط مقياس الصورة الأصلية لتبدأ من نفس سعر البداية التاريخي
-        scaled_user_pattern = (user_pattern * np.std(matched_history)) + np.mean(matched_history)
-
         fig, ax = plt.subplots(figsize=(12, 6))
         
-        # 1. رسم النمط التاريخي المطابق
-        ax.plot(range(len(matched_history)), matched_history, label="النمط المطابق تاريخياً", color="#00f2fe", linewidth=2.5)
+        # رسم النمط المطابق تاريخياً
+        ax.plot(range(len(matched_history)), matched_history, label="النمط المطابق تاريخياً لرسمتك", color="#00f2fe", linewidth=2.5)
         
-        # 2. رسم المسار المتوقع القادم باللون الأزرق الممتد
+        # رسم المسار القادم المتوقع
         ax.plot(range(len(matched_history)-1, len(matched_history) + len(matched_future)), 
                 np.insert(matched_future, 0, matched_history[-1]), 
-                label="المسار القادم المتوقع", color="#1e90ff", linewidth=3, linestyle="-")
+                label="المسار القادم المتوقع", color="#1e90ff", linewidth=3.5, linestyle="-")
         
-        # 3. خط بداية التوقع المستقبلي
+        # خط نقطة الانطلاق
         ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.9, label="نقطة الانطلاق الحالية (تنسيخ التوقع)")
         
         ax.set_facecolor("#131722")
