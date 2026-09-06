@@ -3,67 +3,55 @@ import yfinance as yf
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-from scipy.spatial.distance import cdist
 
-st.set_page_config(page_title="Advanced Pattern Engine AI", layout="wide")
+st.set_page_config(page_title="Gold Pattern Precision AI", layout="wide")
 
-st.title("محرك المطابقة الذكي العميق (Deep Pattern Engine) 🪙⚡")
-st.write("نظام تحليل بصري ورياضي متقدم لمطابقة هيكل الشارت، السرعة، والانهيارات الحادة شمعة بشمعة.")
+st.title("محرك مطابقة الذهب التاريخي الفائق 🪙⚡")
+st.write("اختر طريقة إدخال النمط للحصول على أدق مطابقة تاريخية وتوقع مستقبلي.")
 
-# 1. مدخلات الصورة والفريم الزمني
-uploaded_file = st.file_uploader("ارفع صورة الشارت الأصلي", type=["png", "jpg", "jpeg"])
+mode = st.radio("طريقة تحديد النمط:", ["رفع صورة الشارت", "إدخال الهبوط/الارتفاع بالنقاط (دقة 100%)"])
+
 timeframe = st.selectbox("اختر الفريم الزمني", ["1m", "5m", "15m", "1h", "1d"])
 
-if uploaded_file and st.button("بدء المسح الذكي الشامل والعميق 🎯"):
-    with st.spinner("جاري معالجة البكسلات واستخراج النمط بدقة رياضية..."):
-        # أ) قراءة الصورة وعزل خط الشارت عبر الألوان (HSV Color Isolation)
+user_pattern = None
+
+if mode == "رفع صورة الشارت":
+    uploaded_file = st.file_uploader("ارفع صورة الشارت (يفضل قص الأرقام والحواف)", type=["png", "jpg", "jpeg"])
+    if uploaded_file:
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        h, w, _ = img.shape
         
-        # تركيز المسح على منطقة الرسم البياني مجردة
-        crop_img = img[int(h*0.10):int(h*0.85), int(w*0.02):int(w*0.88)]
-        h_c, w_c, _ = crop_img.shape
+        # تحويل للتدرج الرمادي واستخراج أعلى تباين للخط
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape
         
-        hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+        # تركيز على وسط الصورة لتفادي أرقام TradingView
+        crop = gray[int(h*0.1):int(h*0.9), int(w*0.05):int(w*0.85)]
+        hc, wc = crop.shape
         
-        # استخراج الخط الأرجواني/الأزرق الخاص بشارت TradingView
-        # نطاق شامل للألوان المضيئة والخطوط في خلفية الداكنة
-        lower_line = np.array([100, 40, 40])
-        upper_line = np.array([170, 255, 255])
-        mask = cv2.inRange(hsv, lower_line, upper_line)
-        
-        # إذا لم يتوفر لون محدد، نعتمد الاستخراج بالتدرج الرمادي عالي التباين
-        if np.sum(mask) == 0:
-            gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-            _, mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        y_points = []
+        for col in range(wc):
+            # أخذ أعمق نقطة سوداء/داكنة أو مضيئة ممثلة للرسم
+            col_data = crop[:, col]
+            min_pos = np.argmin(col_data)
+            y_points.append(-float(min_pos))
+            
+        user_pattern = np.array(y_points, dtype=np.float64)
 
-        # استخراج منحنى السعر لكل عمود بكسل (Pixel-by-Pixel Column Extraction)
-        y_profile = []
-        x_indices = []
-        for col in range(w_c):
-            rows = np.where(mask[:, col] > 0)[0]
-            if len(rows) > 0:
-                # أخذ متوسط موقع الخط في العمود
-                y_profile.append(-np.mean(rows))
-                x_indices.append(col)
-                
-        if len(y_profile) < 20:
-            # طريقة احتياطية دقيقة تعتمد على أغمق نقاط السعر
-            gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-            y_profile = [-np.argmin(gray[:, col]) for col in range(w_c)]
+else:
+    st.info("أدخل سلوك السعر التقريبي (مثال: 2000 ثم سقوط حاد إلى 1950 ثم ارتداد لـ 1970)")
+    points_str = st.text_input("أدخل قيم السعر تفصل بينها فاصلة (مثال: 2000, 2005, 1950, 1955, 1970):", "2000, 2002, 1950, 1955, 1970")
+    try:
+        user_pattern = np.array([float(x.strip()) for x in points_str.split(",")], dtype=np.float64)
+    except:
+        st.error("يرجى إدخال أرقام صحيحة تفصل بينها فاصلة.")
 
-        user_pattern = np.array(y_profile, dtype=np.float64)
-        
-        # معايرة المعالم للنمط المرفوع (Standardization)
-        user_pattern = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
-        
-        # حساب السرعة والتسارع (First and Second Derivatives)
-        user_grad = np.gradient(user_pattern)
-        user_acc = np.gradient(user_grad)
+if user_pattern is not None and st.button("بدء المسح التاريخي الحقيقي 🎯"):
+    with st.spinner("جاري المسح شمعة بشمعة عبر التاريخ..."):
+        # معايرة النمط
+        norm_user = (user_pattern - np.mean(user_pattern)) / (np.std(user_pattern) + 1e-8)
+        user_drop = np.min(np.diff(norm_user)) # زاوية الهبوط الحاد
 
-    with st.spinner("جاري مطابقة النمط عبر تاريخ الذهب والبحث عن أعمق انكسار عمودي..."):
-        # ب) جلب بيانات الذهب التاريخية
         period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "1d": "max"}
         data = yf.download(tickers="GC=F", period=period_map[timeframe], interval=timeframe, progress=False)
         
@@ -74,70 +62,47 @@ if uploaded_file and st.button("بدء المسح الذكي الشامل وال
         prices = data['Close'].values.flatten().astype(np.float64)
         timestamps = data.index
         
-        window_len = len(user_pattern)
+        window_len = len(norm_user)
         future_len = int(window_len * 0.5)
         
         best_score = float("inf")
         best_idx = -1
-        
-        # موقع أدنى قاع وأعلى قمة في صورة المستخدم
-        user_min_idx = np.argmin(user_pattern)
-        user_max_idx = np.argmax(user_pattern)
 
-        # ج) خوارزمية البحث الشامل الحازمة (Strict Matcher)
         for i in range(0, len(prices) - window_len - future_len, 1):
             hist_window = prices[i : i + window_len]
-            std_dev = np.std(hist_window)
-            if std_dev == 0:
+            if np.std(hist_window) == 0:
                 continue
                 
-            norm_hist = (hist_window - np.mean(hist_window)) / std_dev
+            norm_hist = (hist_window - np.mean(hist_window)) / np.std(hist_window)
+            hist_drop = np.min(np.diff(norm_hist))
             
-            # 1. مطابقة المسار الهيكلي الإجمالي (Shape Error)
-            shape_error = np.mean(np.abs(user_pattern - norm_hist))
+            shape_diff = np.mean(np.abs(norm_user - norm_hist))
+            drop_penalty = abs(user_drop - hist_drop) * 6.0 # عقوبة زاوية الهبوط
             
-            # 2. مطابقة سرعة وسعة الهبوط العمودي (Velocity & Drop Match)
-            hist_grad = np.gradient(norm_hist)
-            velocity_error = np.mean(np.abs(user_grad - hist_grad))
+            score = shape_diff + drop_penalty
             
-            # 3. عقوبة موقع القاع الأعمق (Spike Drop Placement Penalty)
-            hist_min_idx = np.argmin(norm_hist)
-            hist_max_idx = np.argmax(norm_hist)
-            peak_valley_penalty = (abs(user_min_idx - hist_min_idx) + abs(user_max_idx - hist_max_idx)) / window_len
-            
-            # النتيجة المركبة المحسوبة للأداء العالي
-            total_score = shape_error + (velocity_error * 3.5) + (peak_valley_penalty * 2.5)
-            
-            if total_score < best_score:
-                best_score = total_score
+            if score < best_score:
+                best_score = score
                 best_idx = i
 
-        # د) عرض التواريخ والنتائج
         match_start_time = timestamps[best_idx].strftime('%Y-%m-%d %H:%M')
         match_end_time = timestamps[best_idx + window_len].strftime('%Y-%m-%d %H:%M')
         
-        # نسبة المطابقة الرياضية
-        match_percentage = max(50.0, min(99.2, 100 - (best_score * 16)))
+        match_percentage = max(50.0, min(99.0, 100 - (best_score * 10)))
         
-        st.success(f"🔥 تم العثور على أحدث نمط مطابق تاريخياً بنسبة: **{match_percentage:.1f}%**")
-        st.info(f"📅 **تاريخ وقوع هذا النمط في الماضي:** من **{match_start_time}** إلى **{match_end_time}**")
+        st.success(f"🔥 تم العثور على النمط المطابق بنسبة: **{match_percentage:.1f}%**")
+        st.info(f"📅 **تاريخ وقوع النمط في الماضي:** من **{match_start_time}** إلى **{match_end_time}**")
 
-        # هـ) الرسم البياني النهائي (النمط التاريخي + التوقع الممتد بالأزرق)
         matched_history = prices[best_idx : best_idx + window_len]
         matched_future = prices[best_idx + window_len : best_idx + window_len + future_len]
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        
-        # رسم النمط المطابق
         ax.plot(range(len(matched_history)), matched_history, label="النمط المطابق تاريخياً", color="#00f2fe", linewidth=2.5)
-        
-        # رسم التوقع القادم الممتد باللون الأزرق
         ax.plot(range(len(matched_history)-1, len(matched_history) + len(matched_future)), 
                 np.insert(matched_future, 0, matched_history[-1]), 
                 label="المسار القادم المتوقع", color="#1e90ff", linewidth=3.5, linestyle="-")
         
-        # الخط الأصفر الفاصل
-        ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.9, label="نقطة الانطلاق الحالية (نسخ التوقع)")
+        ax.axvline(x=len(matched_history)-1, color="#ffd700", linestyle="--", alpha=0.9, label="نقطة الانطلاق الحالية")
         
         ax.set_facecolor("#131722")
         fig.patch.set_facecolor("#131722")
