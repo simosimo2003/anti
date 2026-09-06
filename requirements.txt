@@ -2,6 +2,7 @@ streamlit
 yfinance
 opencv-python-headless
 numpy
+pandas
 matplotlib
 scipy
-fastdtw
+streamlit-drawable-canvas
