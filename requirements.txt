@@ -3,4 +3,4 @@ streamlit-drawable-canvas==0.9.3
 yfinance
 numpy
 matplotlib
-opencv-python-headless
+scipy
