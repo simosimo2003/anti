@@ -508,8 +508,9 @@ if has_input and run:
             "أقصى تغيّر لاحق %": round(float(pct_path[-1]), 2),
         })
 
-    st.subheader("📊 أفضل الحالات المستقلة المستخدمة في بناء التوقع")
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
-
     if len(normalized_future_paths) >= 2:
-        matrix = np.array(normalized_future_paths)          # (k, COMMON_HOR
+        matrix = np.array(normalized_future_paths)          # (k, COMMON_HORIZON_POINTS)
+        w_arr = np.array(weights)
+        w_arr = w_arr / w_arr.sum()
+
+        weighted_mean_path = np.average(matrix, ax
